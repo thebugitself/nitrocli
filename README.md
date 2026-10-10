@@ -149,7 +149,7 @@ The three drivers are what provide the interfaces; load them first (once per
 boot), then use the CLI straight from the source tree.
 
 ```bash
-cd ~/Project/reverse/acer-linux
+cd ~/Project/reverse/nitroctl
 
 # load the modules (run once per boot)
 sudo modprobe acer-wmi-battery acer-wmi-rgb
@@ -168,7 +168,7 @@ Installs the modules for the running kernel, puts `nitroctl` in
 include `~/.local/bin`), and configures boot-time loading + a udev rule.
 
 ```bash
-cd ~/Project/reverse/acer-linux
+cd ~/Project/reverse/nitroctl
 sudo ./scripts/install.sh
 ```
 
@@ -325,7 +325,7 @@ confirm the LEDs changed.
 ## Layout
 
 ```
-acer-linux/
+nitroctl/
 ├── cli/nitroctl                     # the CLI (single dependency-free Python file)
 ├── kernel/
 │   ├── acer-wmi-battery.c           # battery health/calibration/temp WMI driver
@@ -350,7 +350,7 @@ acer-linux/
 **`sudo: nitroctl: command not found`**
 `sudo` uses its own `secure_path` that does not include `~/.local/bin`. Either
 run `sudo ./scripts/install.sh` (installs to `/usr/local/bin`), or call the
-full path: `sudo ~/Project/reverse/acer-linux/cli/nitroctl ...`.
+full path: `sudo ~/Project/reverse/nitroctl/cli/nitroctl ...`.
 
 **`ERR: acer-wmi-rgb driver not loaded` / `acer-wmi-battery driver not loaded`**
 The module is not loaded. `sudo modprobe acer-wmi-battery acer-wmi-rgb`, or
