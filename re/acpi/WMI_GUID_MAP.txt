@@ -1,0 +1,26 @@
+Acer WMI GUID map decoded from the DSDT/SSDT _WDG buffers.
+
+== ssdt14.dsl  _WDG = 280 bytes ==
+  {676AA15E-6A47-4D9F-A2CC-1E6D18D14026}  inst=1  flags=0x08  event object id=0x00BC
+  {2E6B3CE2-6A58-4AF2-8767-4640CA8A38E3}  inst=1  flags=0x08  event object id=0x00AE
+  {61EF69EA-865C-4BC3-A502-A0DEBA0CB531}  inst=1  flags=0x02  method object id=AA
+  {1EA0BC57-521E-461B-A7A9-5D36F141A82A}  inst=1  flags=0x02  method object id=AE
+  {79772EC5-04B1-4BFD-843C-61E7F77B6CC9}  inst=1  flags=0x02  method object id=BE
+  {79772EC6-04B1-4BFD-843C-61E7F77B6CC9}  inst=1  flags=0x02  method object id=BF
+  {F75F5666-B8B3-4A5D-A91C-7488F62E5637}  inst=1  flags=0x02  method object id=BK
+  {FE1DBBDA-3014-4856-870C-5B3A744BF341}  inst=1  flags=0x02  method object id=BL
+  {77B0C3A7-F71D-43CB-B749-91CBFF5DDC43}  inst=1  flags=0x02  method object id=BG
+  {7A4DDFE7-5B5D-40B4-8595-4408E0CC7F56}  inst=1  flags=0x02  method object id=BH
+  {4BB53443-488A-430D-A25C-874660E23BDD}  inst=1  flags=0x02  method object id=AC
+  {A9D77EF6-55E0-4706-B139-96ACE13F2269}  inst=1  flags=0x08  event object id=0x00BD
+  {9F98130E-3B48-40B3-9402-DE8E160F30CC}  inst=1  flags=0x02  method object id=AB
+  {05901221-D566-11D1-B2F0-00A0C9062910}  inst=1  flags=0x00  method object id=AB
+
+== dsdt.dsl  _WDG = 60 bytes ==
+  {2BC49DEF-7B15-4F05-8BB7-EE37B9547C0B}  inst=1  flags=0x02  method object id=DE
+  {A6FEA33E-DABF-46F5-BFC8-460D961BEC9F}  inst=1  flags=0x08  event object id=0x00D0
+  {05901221-D566-11D1-B2F0-00A0C9062910}  inst=1  flags=0x00  method object id=CC
+
+== dsdt.dsl  _WDG = 40 bytes ==
+  {1F13AB7F-6220-4210-8F8E-8BB5E71EE969}  inst=1  flags=0x02  method object id=TE
+  {05901221-D566-11D1-B2F0-00A0C9062910}  inst=1  flags=0x00  method object id=CC

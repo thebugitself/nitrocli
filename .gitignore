@@ -1,0 +1,17 @@
+# kernel module build artefacts
+kernel/*.o
+kernel/*.ko
+kernel/*.mod
+kernel/*.mod.c
+kernel/.*.cmd
+kernel/modules.order
+kernel/Module.symvers
+kernel/.module-common.o
+
+# python
+__pycache__/
+*.py[cod]
+
+# misc
+*.swp
+.DS_Store

@@ -1,0 +1,18 @@
+# Allow the local user to change the keyboard RGB without sudo.
+#
+# The Acer keyboard RGB zone attributes are created root-only by the WMI
+# driver. This grants write access to the active-session user's group.
+#
+# Install:
+#   sudo install -m 0644 scripts/udev/60-acer-nitro-rgb.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload && sudo udevadm trigger
+#
+# (For a multi-user box, replace "root" below with a dedicated group and add
+#  your user to it instead of using root.)
+
+ACTION=="add", SUBSYSTEM=="wmi", KERNEL=="7A4DDFE7-5B5D-40B4-8595-4408E0CC7F56-*", \
+    RUN+="/bin/sh -c 'for z in 1 2 3 4; do chgrp root /sys/bus/wmi/drivers/acer-wmi-rgb/zone$z 2>/dev/null; chmod 0664 /sys/bus/wmi/drivers/acer-wmi-rgb/zone$z 2>/dev/null; done'"
+
+# Same idea for the battery charge-limit knob, if you want a non-root toggle.
+ACTION=="add", SUBSYSTEM=="wmi", KERNEL=="79772EC5-04B1-4BFD-843C-61E7F77B6CC9-*", \
+    RUN+="/bin/sh -c 'chmod 0664 /sys/bus/wmi/drivers/acer-wmi-battery/health_mode 2>/dev/null'"

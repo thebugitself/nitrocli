@@ -1,0 +1,15 @@
+[Unit]
+Description=Apply Acer Nitro keyboard RGB + performance profile
+After=multi-user.target
+# The WMI modules must be loaded first (see /etc/modules-load.d/acer-nitro.conf)
+Wants=systemd-modules-load.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Adjust colours / profile to taste.
+ExecStart=/usr/local/bin/nitroctl rgb set 8a2be2
+ExecStart=/usr/local/bin/nitroctl perf set balanced
+
+[Install]
+WantedBy=multi-user.target

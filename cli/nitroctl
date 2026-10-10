@@ -1,0 +1,363 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+"""
+nitroctl - Linux CLI port of the useful parts of Acer Care Center + NitroSense
+for Acer Nitro / Predator laptops (developed on Nitro 5 AN515-58).
+
+Backed by:
+  * acer-wmi-battery   kernel module  -> battery charge limiter (health mode),
+                                          battery calibration, battery temp
+  * acer-wmi-rgb       kernel module  -> 4-zone keyboard RGB
+  * acer-wmi (in-tree mainline)       -> performance profile + fans + temps
+  * hwmon                             -> fan RPM / temperatures / PWM
+
+All ACPI/EC/WMI plumbing was reverse engineered from the OEM binaries and the
+OEM ACPI tables; see docs/REVERSE_ENGINEERING.md.
+"""
+from __future__ import annotations
+
+import argparse
+import glob
+import os
+import sys
+
+VER = "1.0.0"
+
+WMI_DRIVERS = "/sys/bus/wmi/drivers"
+BAT_DIR = f"{WMI_DRIVERS}/acer-wmi-battery"
+RGB_DIR = f"{WMI_DRIVERS}/acer-wmi-rgb"
+PLATFORM_PROFILE_GLOB = "/sys/devices/platform/acer-wmi/platform-profile/platform-profile-*"
+HW_MONITOR_GLOB = "/sys/devices/platform/acer-wmi/hwmon/hwmon*"
+
+OK, WARN, ERR = "OK", "WARN", "ERR"
+
+
+def die(msg: str) -> "NoReturn":  # noqa: F821
+    print(f"{ERR}: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+def read(path: str) -> str:
+    try:
+        with open(path) as fh:
+            return fh.read().strip()
+    except OSError as exc:
+        raise SystemExit(f"{ERR}: cannot read {path}: {exc.strerror}")
+
+
+def write(path: str, value: str) -> None:
+    try:
+        with open(path, "w") as fh:
+            fh.write(value)
+    except PermissionError:
+        die(f"permission denied writing {path} (run as root / via sudo)")
+    except OSError as exc:
+        die(f"cannot write {path}: {exc.strerror}")
+
+
+def hwmon_dir() -> str | None:
+    dirs = sorted(glob.glob(HW_MONITOR_GLOB))
+    return dirs[0] if dirs else None
+
+
+def profile_dir() -> str | None:
+    dirs = sorted(glob.glob(PLATFORM_PROFILE_GLOB))
+    return dirs[0] if dirs else None
+
+
+def have(path: str) -> bool:
+    return os.path.exists(path)
+
+
+# --------------------------------------------------------------------------- #
+# battery limiter (Acer Care Center "Battery Charge Limit" / health mode)
+# --------------------------------------------------------------------------- #
+def cmd_battery(args: argparse.Namespace) -> int:
+    if not have(BAT_DIR):
+        die(
+            "acer-wmi-battery driver not loaded.\n"
+            "  load it with:  sudo modprobe acer-wmi-battery\n"
+            "  (or: sudo insmod kernel/acer-wmi-battery.ko)"
+        )
+
+    hm_path = f"{BAT_DIR}/health_mode"
+    cal_path = f"{BAT_DIR}/calibration_mode"
+    tmp_path = f"{BAT_DIR}/temperature"
+
+    if args.action == "status":
+        hm = read(hm_path)
+        cal = read(cal_path)
+        try:
+            temp_c = int(read(tmp_path)) / 1000.0
+            temp = f"{temp_c:.1f} C"
+        except (ValueError, OSError):
+            temp = "n/a"
+        limit = "ENABLED (stops at ~80%)" if hm == "1" else "disabled (charge to 100%)"
+        print(f"charge limit (health mode) : {limit}   [{hm}]")
+        print(f"calibration mode           : {'active' if cal == '1' else 'inactive'}   [{cal}]")
+        print(f"battery temperature        : {temp}")
+        return 0
+
+    if args.action == "limit":
+        if args.state is None:
+            die("usage: nitroctl battery limit on|off")
+        target = 1 if args.state == "on" else 0
+        write(hm_path, str(target))
+        # read back (firmware state, not our cache)
+        got = read(hm_path)
+        state = "ENABLED (~80%)" if got == "1" else "disabled (100%)"
+        print(f"charge limit -> {state}")
+        if args.state == "on" and got == "1":
+            print("note: firmware stops charging at ~80% while on AC.")
+        return 0
+
+    if args.action == "calibrate":
+        if args.state is None:
+            die("usage: nitroctl battery calibrate on|off")
+        target = 1 if args.state == "on" else 0
+        write(cal_path, str(target))
+        got = read(cal_path)
+        print(f"calibration mode -> {'active' if got == '1' else 'inactive'}")
+        if args.state == "on":
+            print("note: disables the charge limit and runs a charge/discharge cycle.")
+            print("      disable it again (calibrate off) once complete.")
+        return 0
+
+    if args.action == "temp":
+        print(read(tmp_path))
+        return 0
+
+    die(f"unknown battery action {args.action}")
+    return 2
+
+
+# --------------------------------------------------------------------------- #
+# keyboard RGB (NitroSense 4-zone lighting)
+# --------------------------------------------------------------------------- #
+ZONE_IDS = {"1": "zone1", "2": "zone2", "3": "zone3", "4": "zone4"}
+
+
+def parse_hex_color(s: str) -> str:
+    s = s.lstrip("#").lower()
+    if len(s) != 6:
+        die(f"invalid color {s!r}, expected RRGGBB (e.g. ff0000)")
+    try:
+        int(s, 16)
+    except ValueError:
+        die(f"invalid hex color {s!r}")
+    return s
+
+
+def cmd_rgb(args: argparse.Namespace) -> int:
+    if not have(RGB_DIR):
+        die(
+            "acer-wmi-rgb driver not loaded.\n"
+            "  load it with:  sudo modprobe acer-wmi-rgb\n"
+            "  (or: sudo insmod kernel/acer-wmi-rgb.ko)"
+        )
+
+    if args.action == "get":
+        zones = [ZONE_IDS[args.zone]] if args.zone else ["zone1", "zone2", "zone3", "zone4"]
+        for z in zones:
+            print(f"{z}: #{read(f'{RGB_DIR}/{z}')}")
+        return 0
+
+    if args.action == "set":
+        if args.color is None:
+            die("usage: nitroctl rgb set RRGGBB [-z 1,2,3,4]")
+        color = parse_hex_color(args.color)
+        if args.zone:
+            toks = [z.strip() for z in args.zone.split(",") if z.strip()]
+            for t in toks:
+                if t not in ZONE_IDS:
+                    die(f"invalid zone {t!r}; use 1,2,3,4 (comma separated)")
+            zones = [ZONE_IDS[t] for t in toks]
+        else:
+            zones = ["zone1", "zone2", "zone3", "zone4"]
+        # colours fade in the EC at different rates per zone; keep the same
+        # value and let the firmware/EC apply it (matches NitroSense behaviour).
+        for z in zones:
+            write(f"{RGB_DIR}/{z}", color)
+        print(f"set {','.join(zones)} -> #{color}")
+        return 0
+
+    if args.action == "off":
+        for z in ZONE_IDS.values():
+            write(f"{RGB_DIR}/{z}", "000000")
+        print("all zones -> off")
+        return 0
+
+    die(f"unknown rgb action {args.action}")
+    return 2
+
+
+# --------------------------------------------------------------------------- #
+# performance profile (NitroSense Quiet / Default / Performance)
+# --------------------------------------------------------------------------- #
+def cmd_perf(args: argparse.Namespace) -> int:
+    pdir = profile_dir()
+    if not pdir:
+        die("acer-wmi platform-profile not available (is acer-wmi loaded?)")
+
+    prof = f"{pdir}/profile"
+    choices = read(f"{pdir}/choices").split()
+
+    if args.action in ("list", "get"):
+        cur = read(prof)
+        print(f"current: {cur}")
+        for c in choices:
+            mark = "*" if c == cur else " "
+            print(f"  {mark} {c}")
+        return 0
+
+    if args.action == "set":
+        if args.profile not in choices:
+            die(f"{args.profile!r} not supported. choices: {' '.join(choices)}")
+        write(prof, args.profile)
+        print(f"performance profile -> {read(prof)}")
+        return 0
+
+    die(f"unknown perf action {args.action}")
+    return 2
+
+
+# --------------------------------------------------------------------------- #
+# fans + temperatures (NitroSense cooling page)
+# --------------------------------------------------------------------------- #
+FAN_LABELS = {"1": "CPU", "2": "GPU"}
+TEMP_LABELS = {"1": "CPU", "2": "GPU?", "3": "SYS/Chipset"}
+
+
+def cmd_fan(args: argparse.Namespace) -> int:
+    h = hwmon_dir()
+    if not h:
+        die("acer-wmi hwmon not found (is acer-wmi loaded?)")
+
+    if args.action == "status":
+        rpms = {}
+        for n in ("1", "2"):
+            p = f"{h}/fan{n}_input"
+            if have(p):
+                rpms[n] = read(p)
+        for n, rpm in rpms.items():
+            print(f"fan{n} ({FAN_LABELS.get(n, '?')}) : {rpm} RPM")
+        for n in ("1", "2", "3"):
+            p = f"{h}/temp{n}_input"
+            if have(p):
+                c = int(read(p)) / 1000.0
+                print(f"temp{n} ({TEMP_LABELS.get(n, '?')}) : {c:.0f} C")
+        for n in ("1", "2"):
+            pe = f"{h}/pwm{n}_enable"
+            if have(pe):
+                mode = {"0": "off/full-speed", "1": "manual", "2": "auto"}.get(read(pe), "?")
+                print(f"pwm{n} mode        : {mode} (value {read(f'{h}/pwm{n}')})")
+        return 0
+
+    if args.action == "set":
+        if args.fan is None or args.percent is None:
+            die("usage: nitroctl fan set <1|2> <percent>")
+        fan = args.fan
+        if fan not in ("1", "2"):
+            die(f"invalid fan {fan!r}; use 1 (CPU) or 2 (GPU)")
+        if not have(f"{h}/pwm{fan}"):
+            die(f"pwm{fan} not present")
+        # Guard rails: writing PWM pins the fan; going too low can cook the CPU.
+        pct = max(20, min(100, args.percent))
+        if pct != args.percent:
+            print(f"{WARN}: clamped {args.percent}% -> {pct}% (min 20% for safety)")
+        raw = int(round(pct / 100.0 * 255))
+        write(f"{h}/pwm{fan}_enable", "1")  # manual mode
+        write(f"{h}/pwm{fan}", str(raw))
+        print(f"fan{fan} ({FAN_LABELS.get(fan, '?')}) -> manual {pct}% (pwm={raw})")
+        print("note: 'nitroctl fan auto' restores firmware control.")
+        return 0
+
+    if args.action == "auto":
+        for n in ("1", "2"):
+            if have(f"{h}/pwm{n}_enable"):
+                write(f"{h}/pwm{n}_enable", "2")  # back to firmware auto
+        print("fans -> firmware auto control")
+        return 0
+
+    die(f"unknown fan action {args.action}")
+    return 2
+
+
+# --------------------------------------------------------------------------- #
+# doctor: environment / feature support check
+# --------------------------------------------------------------------------- #
+def cmd_doctor(_args: argparse.Namespace) -> int:
+    def row(name, ok, detail=""):
+        print(f"[{OK if ok else WARN:<4}] {name:<22} {detail}")
+
+    print(f"nitroctl {VER}  |  host check")
+    print("-" * 60)
+
+    model = "?"
+    try:
+        with open("/sys/class/dmi/id/product_name") as fh:
+            model = fh.read().strip()
+    except OSError:
+        pass
+    row("machine", True, model)
+
+    row("acer-wmi (in-tree)", bool(profile_dir()),
+        "platform-profile + fans + temps" if profile_dir() else "not loaded -> sudo modprobe acer-wmi")
+    row("acer-wmi-battery", have(BAT_DIR),
+        "charge limiter available" if have(BAT_DIR) else "not loaded -> sudo modprobe acer-wmi-battery")
+    row("acer-wmi-rgb", have(RGB_DIR),
+        "keyboard RGB available" if have(RGB_DIR) else "not loaded -> sudo modprobe acer-wmi-rgb")
+    h = hwmon_dir()
+    row("hwmon (fans/temps)", bool(h), h or "n/a")
+    row("platform-profile", bool(profile_dir()),
+        read(f"{profile_dir()}/profile") if profile_dir() else "n/a")
+
+    print("-" * 60)
+    print("modules: acer-wmi-battery, acer-wmi-rgb (built from kernel/*.c)")
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="nitroctl",
+        description="Linux port of Acer Care Center battery limiter + NitroSense RGB/cooling controls.",
+    )
+    p.add_argument("-V", "--version", action="version", version=f"nitroctl {VER}")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    b = sub.add_parser("battery", help="battery charge limiter / calibration / temp")
+    b.add_argument("action", choices=["status", "limit", "calibrate", "temp"])
+    b.add_argument("state", nargs="?", choices=["on", "off"])
+    b.set_defaults(func=cmd_battery)
+
+    r = sub.add_parser("rgb", help="4-zone keyboard RGB")
+    r.add_argument("action", choices=["get", "set", "off"])
+    r.add_argument("color", nargs="?", help="RRGGBB, e.g. ff00aa")
+    r.add_argument("-z", "--zone", help="zone(s): 1..4, comma separated (default: all)")
+    r.set_defaults(func=cmd_rgb)
+
+    pf = sub.add_parser("perf", help="performance profile")
+    pf.add_argument("action", nargs="?", default="get", choices=["list", "get", "set"])
+    pf.add_argument("profile", nargs="?", help="low-power|quiet|balanced|balanced-performance|performance")
+    pf.set_defaults(func=cmd_perf)
+
+    f = sub.add_parser("fan", help="fans + temperatures")
+    f.add_argument("action", choices=["status", "set", "auto"])
+    f.add_argument("fan", nargs="?", help="1 (CPU) or 2 (GPU)")
+    f.add_argument("percent", nargs="?", type=int, help="0-100 (clamped to 20-100)")
+    f.set_defaults(func=cmd_fan)
+
+    d = sub.add_parser("doctor", help="check driver / feature availability")
+    d.set_defaults(func=cmd_doctor)
+
+    return p
+
+
+def main(argv=None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
